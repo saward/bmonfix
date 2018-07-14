@@ -6,7 +6,10 @@ import (
 	"io/ioutil"
 	"log"
 	"os/exec"
+	"os/user"
 	"strings"
+
+	"github.com/davecgh/go-spew/spew"
 
 	"gopkg.in/yaml.v2"
 )
@@ -34,8 +37,14 @@ type Configurations struct {
 }
 
 func main() {
+	usr, err := user.Current()
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Load configuration from file:
-	cb, err := ioutil.ReadFile("configuration.yaml")
+	cb, err := ioutil.ReadFile(fmt.Sprintf("%s/.config/bmonfix/configuration.yaml", usr.HomeDir))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -54,7 +63,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	//spew.Dump(ac)
+	log.Printf("Discovered config:")
+	spew.Dump(ac)
 
 	// Found a matching config, so let's apply it.  Steps:
 	// 1. Create a default desktop on each monitor so that we can move the ones we want
@@ -79,6 +89,7 @@ func main() {
 	for _, l := range ac.Layouts {
 		for _, d := range l.Desktops {
 
+			// We only want to create it if it exists on *no* monitors
 			created, err := createUncreatedDesktop(d, l.Monitor, false)
 
 			if err != nil {
@@ -87,6 +98,7 @@ func main() {
 			}
 
 			if !created {
+				log.Printf("Desktop %s was not created, so moving to monitor %s", d, l.Monitor)
 				// Move desktop to specified monitor
 				cmd := exec.Command("bspc", "desktop", d, "-m", l.Monitor)
 
@@ -210,12 +222,12 @@ func getMonitorsList() ([]string, error) {
 // that desktop does not exist.  If monitor is not provided, then only create
 // if doesn't exist anywhere
 func createUncreatedDesktop(desktop string, monitor string, monitorMatch bool) (bool, error) {
-	exists := false
+	var exists, created bool
 
 	exists, err := checkDesktopExists(desktop, monitor, monitorMatch)
 
 	if err != nil {
-		return exists, err
+		return created, err
 	}
 
 	if !exists {
@@ -226,9 +238,11 @@ func createUncreatedDesktop(desktop string, monitor string, monitorMatch bool) (
 		if err != nil {
 			log.Fatal(err)
 		}
+
+		created = true
 	}
 
-	return exists, nil
+	return created, nil
 }
 
 // checkDesktopExists Checks if desktop exists.  If monitor is provided, checks
