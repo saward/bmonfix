@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/davecgh/go-spew/spew"
 	"gopkg.in/yaml.v2"
 )
 
@@ -55,26 +54,124 @@ func main() {
 		log.Fatal(err)
 	}
 
-	spew.Dump(ac)
+	//spew.Dump(ac)
 
 	// Found a matching config, so let's apply it.  Steps:
-	// 1. Move all desktops to appropriate monitors
-	// 2. (?) Order those desktops
-	// 3. (?) Delete unused
+	// 1. Create a default desktop on each monitor so that we can move the ones we want
+	// 2. Create any specified desktops that don't exist
+	// 2. Move all desktops to appropriate monitors
+	// 4. (?) Delete unused/default
+	// 3. (?) Order those desktops
 
+	// Create default desktop on each monitor, if it doesn't already exist on that monitor:
+	for _, l := range ac.Layouts {
+		dName := fmt.Sprintf("default-%s", l.Monitor)
+
+		_, err := createUncreatedDesktop(dName, l.Monitor, true)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	// Create any listed desktops that don't exist on appropriate desktop, or
+	// move if they exist to their correct desktop
 	for _, l := range ac.Layouts {
 		for _, d := range l.Desktops {
-			// Move desktop to specified monitor
-			cmd := exec.Command("bspc", "desktop", d, "-m", l.Monitor)
 
-			err := cmd.Run()
+			created, err := createUncreatedDesktop(d, l.Monitor, false)
 
 			if err != nil {
-				// We note but ignore errors, to get something good enough:
 				log.Print(err)
+				continue
+			}
+
+			if !created {
+				// Move desktop to specified monitor
+				cmd := exec.Command("bspc", "desktop", d, "-m", l.Monitor)
+
+				err := cmd.Run()
+
+				if err != nil {
+					// We note but ignore errors, to get something good enough:
+					log.Print(err)
+				}
 			}
 		}
 	}
+
+	// Delete any listed desktops that shouldn't exist
+
+	for _, l := range ac.Layouts {
+
+		// Get list of desktops that exist on specified monitor
+		desktops, err := getQueryList("bspc", "query", "-D", "--names", "-m", l.Monitor)
+
+		if err != nil {
+			log.Print(err)
+			continue
+		}
+
+		// Check whether or not each found desktop should be there, and delete
+		// if not:
+		for _, found := range desktops {
+			var shouldExist bool
+
+			for _, d := range l.Desktops {
+				if found == d {
+					shouldExist = true
+					break
+				}
+			}
+
+			// Shouldn't exist, so delete from monitor:
+			if !shouldExist {
+				id, err := getDesktopID(found, l.Monitor)
+
+				if err != nil {
+					log.Print(err)
+					continue
+				}
+
+				cmd := exec.Command("bspc", "desktop", id, "-r")
+
+				err = cmd.Run()
+
+				if err != nil {
+					log.Print(err)
+					continue
+				}
+			}
+		}
+	}
+}
+
+// getDesktopID Returns the desktop ID for the named desktop on the specified
+// monitor
+func getDesktopID(desktop string, monitor string) (string, error) {
+	var id string
+	// Get desktop names, and then desktop id's, because we assume order is the
+	// same:
+
+	desktopNames, err := getQueryList("bspc", "query", "--names", "-D", "-m", monitor)
+
+	if err != nil {
+		return id, err
+	}
+
+	desktopIDs, err := getQueryList("bspc", "query", "-D", "-m", monitor)
+
+	if err != nil {
+		return id, err
+	}
+
+	for i, name := range desktopNames {
+		if name == desktop {
+			return desktopIDs[i], nil
+		}
+	}
+
+	return id, fmt.Errorf("Desktop %s not found on monitor %s", desktop, monitor)
 }
 
 // Returns array of values as returned from specified command
@@ -108,6 +205,57 @@ func getMonitorsList() ([]string, error) {
 	}
 
 	return queryList, err
+}
+
+// createUncreatedDesktop Creates the listed desktop on the listed monitor if
+// that desktop does not exist.  If monitor is not provided, then only create
+// if doesn't exist anywhere
+func createUncreatedDesktop(desktop string, monitor string, monitorMatch bool) (bool, error) {
+	exists := false
+
+	exists, err := checkDesktopExists(desktop, monitor, monitorMatch)
+
+	if err != nil {
+		return exists, err
+	}
+
+	if !exists {
+		cmd := exec.Command("bspc", "monitor", monitor, "-a", desktop)
+
+		err := cmd.Run()
+
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	return exists, nil
+}
+
+// checkDesktopExists Checks if desktop exists.  If monitor is provided, checks
+// only that desktop
+func checkDesktopExists(desktop string, monitor string, monitorMatch bool) (bool, error) {
+	var exists bool
+	var desktops []string
+	var err error
+
+	if monitorMatch {
+		desktops, err = getQueryList("bspc", "query", "-D", "--names", "-m", monitor)
+	} else {
+		desktops, err = getQueryList("bspc", "query", "-D", "--names")
+	}
+
+	if err != nil {
+		return exists, err
+	}
+
+	for _, d := range desktops {
+		if d == desktop {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // getActiveConfig Checks whether any available configs match the current

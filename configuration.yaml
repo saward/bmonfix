@@ -6,6 +6,8 @@ configurations:
         desktops: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
       - monitor: DP-1-2
         desktops: [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+      - monitor: eDP-1
+        desktops: [empty]
   - name: Solo
     monitors: [eDP-1]
     layouts:
