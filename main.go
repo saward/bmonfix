@@ -60,8 +60,8 @@ func main() {
 	// 1. Create a default desktop on each monitor so that we can move the ones we want
 	// 2. Create any specified desktops that don't exist
 	// 2. Move all desktops to appropriate monitors
-	// 4. (?) Delete unused/default
-	// 3. (?) Order those desktops
+	// 4. Delete unused/default
+	// 5. (?) Order those desktops
 
 	// Create default desktop on each monitor, if it doesn't already exist on that monitor:
 	for _, l := range ac.Layouts {
@@ -101,7 +101,6 @@ func main() {
 	}
 
 	// Delete any listed desktops that shouldn't exist
-
 	for _, l := range ac.Layouts {
 
 		// Get list of desktops that exist on specified monitor
